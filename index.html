@@ -37,11 +37,7 @@
   <div class="buttons">
     <a class="btn btn-primary" href="https://arxiv.org/abs/2608.25230">
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5.2L12.5 5v9.5h-8.5z"/><path d="M9 1.8V5h3.2"/><path d="M6 8h4.5M6 10.5h4.5"/></svg>
-      Paper (arXiv)
-    </a>
-    <a class="btn" href="https://github.com/jerry2247/trust-the-mass-website">
-      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-      Code
+      Paper
     </a>
     <a class="btn" href="#bibtex">
       <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M3 10.5c0-3.2 1.9-5.6 4.6-6.5l.6 1.2C6.5 6 5.6 7.2 5.4 8.4c.2-.1.5-.15.8-.15 1.2 0 2.1.9 2.1 2.1S7.4 12.5 6.1 12.5C4.3 12.5 3 11.7 3 10.5Zm6.5 0c0-3.2 1.9-5.6 4.6-6.5l.6 1.2c-1.7.8-2.6 2-2.8 3.2.2-.1.5-.15.8-.15 1.2 0 2.1.9 2.1 2.1s-.9 2.15-2.2 2.15c-1.8 0-3.1-.8-3.1-2Z"/></svg>
@@ -52,11 +48,11 @@
 
 <section id="abstract" class="abstract-section">
   <h2>Abstract</h2>
-  <p class="abstract-text">Every deployed KV-cache-eviction rule and every top-<em>k</em> sparse-attention rule keeps a subset of the keys, discards the rest, and renormalizes the attention weights over the kept set. Identifying the exact best subset under that constraint, we find that keeping the largest weights is already near-optimal, since the best subset we find closes only a median 2 to 5% of the remaining gap to full attention. We evaluate deployed eviction methods in KVPress and find that query-agnostic methods with non-uniform per-head budgets apply attention masks over the full cache instead of evicting tokens from memory. Truncating each head to the target budget lowers benchmark scores by 14 to 62 points, and computing token importance with the question in context accounts for 87.6 points in retrieval accuracy. ContourKV, a training-free rule that applies KVzip's score under a physically enforced budget, beats KVzip in 93 of 160 benchmark runs across RULER and LongBench while using 28 to 1078 times less memory, and ties Compactor, the strongest baseline at equal memory.</p>
+  <p class="abstract-text">Every deployed KV-cache-eviction rule and every top-<em>k</em> sparse-attention rule keeps a subset of the keys, discards the rest, and renormalizes the attention weights over the kept set. Identifying the exact best subset under that constraint, we find that keeping the largest weights is already near-optimal, since the best subset we find closes only a median 2 to 5% of the remaining gap to full attention. We evaluate deployed eviction methods in KVPress and find that methods with non-uniform per-head budgets apply attention masks over the full cache because dense cache tensors require equal length across heads. Truncating each head to the target budget lowers benchmark scores by 14 to 62 points, and computing token importance with the question in context accounts for 87.6 points in retrieval accuracy. We propose ContourKV, a training-free rule that applies KVzip's score under a physically enforced budget. It beats KVzip in 93 of 160 benchmark runs across RULER and LongBench while using 28 to 1078 times less memory, and ties Compactor, the strongest baseline at equal memory.</p>
 </section>
 
 <section id="ceiling">
-  <h2>1. Selection Ceiling Under Forced Weights</h2>
+  <h2>Selection Ceiling Under Forced Weights</h2>
   <p>Classical coreset and subset-selection methods choose points geometrically and optimize new weights over the retained set. KV-cache eviction instead <em>forces</em> the weights on the kept keys to be the renormalized softmax probabilities, leaving only the choice of subset. We enumerate the exact best subset within a candidate pool across 220,656 attention rows from eight models at four budgets (<em>s</em> &isin; {4, 8, 16, 32}), supplemented by a full-key mixed-integer solver across ten models (0.6B to 14B). Keeping the largest softmax weights (top-mass) is already near-optimal: the best subset improves on top-mass by a median of only 2.1 to 4.7% of the remaining gap to dense attention, and a greedy single-key swap selector recovers that median in full.</p>
   <figure>
     <img src="assets/b9_ceiling_compact_sym.png" alt="Selection ceiling across model families and budgets" loading="lazy">
@@ -65,7 +61,7 @@
 </section>
 
 <section id="mass">
-  <h2>2. Predicting Headroom with Evicted Attention Mass</h2>
+  <h2>Predicting Headroom with Evicted Attention Mass</h2>
   <p>While keeping the largest weights is near-optimal on most rows, a subset swap can reduce error when the evicted keys carry substantial attention weight and opposing value deviations. The total softmax weight of the evicted keys (dropped mass, <em>m&#772;<sub>s</sub></em>) predicts which instances admit a >10% improvement over top-mass with an AUC of 0.76 to 0.89 across all ten models, outperforming bounds based on value-vector diameter or variance. Aggregated per attention head, dropped mass identifies flat heads whose location is set by model architecture (such as QK-normalization and sliding-window geometry).</p>
   <figure>
     <img src="assets/b3_map_sym.png" alt="Dropped attention mass and subset headroom across layers and heads" loading="lazy">
@@ -74,7 +70,7 @@
 </section>
 
 <section id="memory">
-  <h2>3. Deployed Selectors and Benchmark Accounting</h2>
+  <h2>Deployed Selectors and Benchmark Accounting</h2>
   <p>Deployed eviction rules (SnapKV, H2O, Quest, StreamingLLM) incur 1.4 to 4.2&times; the error of the best subset because they must select tokens before seeing future queries. Consequently, reported benchmark margins reflect how well methods predict future weights alongside differences in memory and query accounting. Evaluating 14 baselines on RULER and LongBench in <code>kvpress</code> (4k to 32k context across Llama-3.1-8B, Qwen2.5-7B, Qwen3-8B, and Qwen3-14B), we find that query-agnostic methods with non-uniform per-head budgets (including KVzip) store their selection as an attention mask over the full cache tensor rather than freeing memory. Forcing each head to compress to the target budget lowers scores by 14.1 to 62.2 points, and compressing the cache before the question enters the context lowers needle retrieval accuracy by 87.6 points.</p>
   <figure>
     <img src="assets/c8_method_headroom.png" alt="Excess error of deployed eviction selectors predicted by dropped mass" loading="lazy">
@@ -83,7 +79,7 @@
 </section>
 
 <section id="contourkv">
-  <h2>4. ContourKV and Cross-Entropy Loss</h2>
+  <h2>ContourKV and Cross-Entropy Loss</h2>
   <p>To evaluate KVzip's context-reconstruction score under actual memory reduction, we introduce <strong>ContourKV</strong>, a training-free rule that retains a recency window of min(32, <em>s</em>/2) tokens plus each head's highest-scoring tokens and physically evicts the rest to enforce a strict per-head budget <em>s</em>. Compared against KVzip's masked full cache in <code>kvpress</code>, ContourKV uses 28 to 1078&times; less memory, beats KVzip in 93 of 160 benchmark runs across RULER and LongBench, and ties Compactor at equal memory. In our held-out cross-entropy analysis, applying oracle value-balancing swaps to flat heads recovers 88 to 98% of the all-head loss reduction on five of eight model families, though cell-level transfer varies across Qwen3 scales.</p>
   <figure>
     <img src="assets/t13c_redirect_paper.png" alt="Change in held-out cross-entropy when balancing flat cells vs random cells" loading="lazy">
@@ -134,15 +130,43 @@ document.getElementById('copy-bibtex').addEventListener('click', function () {
   }
 });
 
+var clickedHash = null;
+var clickTimer = null;
+
 function markToc() {
   var links = document.querySelectorAll(".toc a");
+  if (!links.length) return;
+  if (clickedHash) {
+    links.forEach(function (a) {
+      a.classList.toggle("active", a.getAttribute("href") === clickedHash);
+    });
+    return;
+  }
   var current = links[0];
-  links.forEach(function (a) {
-    var t = document.querySelector(a.getAttribute("href"));
-    if (t && t.getBoundingClientRect().top < window.innerHeight * 0.4) current = a;
-  });
+  var atBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 40);
+  if (atBottom) {
+    current = links[links.length - 1];
+  } else {
+    links.forEach(function (a) {
+      var t = document.querySelector(a.getAttribute("href"));
+      if (t && t.getBoundingClientRect().top <= window.innerHeight * 0.45) current = a;
+    });
+  }
   links.forEach(function (a) { a.classList.toggle("active", a === current); });
 }
+
+document.querySelectorAll('a[href^="#"]').forEach(function (a) {
+  a.addEventListener("click", function () {
+    clickedHash = a.getAttribute("href");
+    markToc();
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(function () {
+      clickedHash = null;
+      markToc();
+    }, 900);
+  });
+});
+
 document.addEventListener("scroll", markToc, { passive: true });
 window.addEventListener("load", markToc);
 </script>

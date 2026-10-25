@@ -1,5 +1,3 @@
-# Trust the Mass: project page
+# Trust the Mass: Forced Weights in KV-Cache Eviction
 
-The project page for "Trust the Mass: Forced Weights in KV-Cache Eviction"
-(NeurIPS 2026, 3rd Workshop on Long-Context Foundation Models). Static HTML
-and CSS with no build step: open `index.html`, or serve the folder as-is.
+Project page for *"Trust the Mass: Forced Weights in KV-Cache Eviction"* (Workshop on Foundations of Efficient Deep Learning, NeurIPS 2026). Static HTML and CSS with no build step: open `index.html`, or serve the folder as-is.

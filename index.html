@@ -21,11 +21,8 @@
   <a href="#top"><i></i>TL;DR</a>
   <a href="#setup"><i></i>Forced weights</a>
   <a href="#best"><i></i>Selection ceiling</a>
-  <a href="#signal"><i></i>Dropped mass</a>
-  <a href="#methods"><i></i>Popular methods</a>
-  <a href="#benchmarks"><i></i>Measured memory</a>
   <a href="#contourkv"><i></i>ContourKV</a>
-  <a href="#predictions"><i></i>Next-word prediction</a>
+  <a href="#limits"><i></i>Limitations</a>
   <a href="#cite"><i></i>Citation</a>
 </nav>
 
@@ -70,9 +67,9 @@
     <div class="contrib" style="margin-top:0">
       <p class="kicker">TL;DR</p>
       <ul>
-        <li><strong>Smarter selection has little room.</strong> When a language model's memory of past tokens grows too large, eviction methods keep some tokens and drop the rest. Searching for the best possible set to keep in 220,656 cases from eight models, we find it beats simply keeping the most-attended tokens by a median of only 2 to 5% of the remaining error, and a simple swap rule finds that improvement.</li>
-        <li><strong>A cheap signal shows when it matters.</strong> The share of attention that lands on the dropped tokens predicts which cases have room to improve, across ten models.</li>
-        <li><strong>Some benchmark wins come without memory savings.</strong> In the standard benchmark library, several leading methods, including KVzip, hide dropped tokens instead of deleting them, so they still use all of the memory. Making them truly delete down to the same size costs 14 to 62 benchmark points, and an 87.6-point retrieval gain comes from letting the method read the question before deciding what to keep.</li>
+        <li><strong>Smarter selection has little room.</strong> When a language model's memory of past tokens grows too large, eviction methods keep some tokens and drop the rest. Across 220,656 cases from eight models, the best possible set beats simply keeping the most-attended tokens by a median of only 2 to 5% of the remaining error, and a simple swap rule finds it.</li>
+        <li><strong>A cheap signal shows when it matters.</strong> The share of attention on the dropped tokens predicts which cases can improve, across ten models.</li>
+        <li><strong>Some benchmark wins come without memory savings.</strong> In the standard benchmark library, several leading methods, including KVzip, hide dropped tokens instead of deleting them and still use all of the memory. Truly deleting down to the same size costs 14 to 62 benchmark points, and an 87.6-point retrieval gain comes from reading the question before choosing what to keep.</li>
         <li><strong>ContourKV.</strong> A simple method that uses KVzip's scores but truly deletes tokens. It beats KVzip in 93 of 160 benchmark runs while using 28 to 1078 times less memory, and ties Compactor, the strongest method that also saves memory.</li>
       </ul>
     </div>
@@ -131,23 +128,15 @@
       </div>
       <figcaption><b>Larger memories.</b> Medians over Qwen2.5-1.5B and OLMo-2-1B. The dashed line marks where a complete search stops being possible.</figcaption>
     </figure>
-  </div>
-</section>
 
-<section id="signal" class="band">
-  <div class="wrap">
-    <h2>Dropped mass</h2>
+    <h3>When a smarter choice helps</h3>
     <p>The share of attention that lands on the dropped tokens predicts the cases where a better choice cuts the error by more than 10%. Across ten models, it ranks such a case above one without room 76 to 89% of the time, better than earlier error bounds. Averaged over each attention head, it forms a map, and which heads have room is decided by how the model is built.</p>
     <figure class="fig-map">
       <div class="card"><a class="zoom" href="assets/b3_map_sym.png" title="Open full size"><img src="assets/b3_map_sym.png" width="2340" height="2402" alt="Heat maps, one square per attention head, comparing the attention on dropped tokens with the room for a better choice, for five models and three kinds of text" loading="lazy"></a></div>
       <figcaption><b>The map.</b> Each square is one attention head, with layers as rows, when 8 tokens are kept. In each pair, the left map shows the attention on dropped tokens and the right map shows how much worse keeping the most-attended tokens is than the best choice. The two line up head by head, and the pattern holds for prose, code and mixed text.</figcaption>
     </figure>
-  </div>
-</section>
 
-<section id="methods">
-  <div class="wrap">
-    <h2>Popular methods</h2>
+    <h3>Popular methods</h3>
     <p>Popular methods are far from this limit. Keeping 8 tokens, SnapKV, H2O, Quest and StreamingLLM have 1.4 to 2.0 times the error of the best choice, while keeping the most-attended tokens comes within 3% of it on three of the four main models. When one saved memory has to serve every later question, the gap grows to as much as 4.2 times for TOVA, H2O and SnapKV. Most of that gap comes from guessing wrong about which tokens will matter, so differences between these methods mostly reflect how well they guess.</p>
     <figure class="fig-mid">
       <div class="card"><a class="zoom" href="assets/c8_method_headroom.png" title="Open full size"><img src="assets/c8_method_headroom.png" width="1848" height="1021" alt="Curves and intervals showing how well the attention on dropped tokens predicts each method's extra error" loading="lazy"></a></div>
@@ -156,9 +145,12 @@
   </div>
 </section>
 
-<section id="benchmarks" class="band">
+<section id="contourkv" class="band">
   <div class="wrap">
-    <h2>Measured memory</h2>
+    <h2>ContourKV</h2>
+    <p>ContourKV keeps the most recent tokens (up to 32) in every head plus that head's highest-scoring tokens, and deletes the rest, so every head holds exactly the target number. With KVzip's scores, it differs from KVzip only in how many tokens each head gets, in keeping recent tokens instead of the first four, and in deleting tokens instead of hiding them.</p>
+
+    <h3>How much memory methods really keep</h3>
     <p>We tested 14 methods from NVIDIA's <code>kvpress</code> library, plus H2O, on two standard long-text benchmarks, RULER and LongBench, with four models and texts of 4,096 to 32,768 tokens. The library stores each layer's memory as one block in which every attention head gets the same number of slots. Methods that give different heads different amounts, including KVzip, therefore cannot delete anything. They hide the dropped tokens and keep the whole memory.</p>
     <figure>
       <div class="card table-card">
@@ -176,6 +168,18 @@
     </figure>
     <p>When the same choices are made to truly delete down to the target size, scores fall in 140 of 157 runs: by 14.1 points on LongBench and by up to 62.2 points on RULER.</p>
 
+    <h3>Results</h3>
+    <figure>
+      <div class="card table-card">
+        <table>
+          <thead><tr><th>Compared with</th><th>Their memory</th><th>Size not enforced</th><th>Size enforced</th></tr></thead>
+          <tbody id="wtl-body"></tbody>
+        </table>
+      </div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>ContourKV wins</span><span><i style="background:var(--evicted)"></i>tie</span><span><i style="background:var(--ink)"></i>ContourKV loses</span></div>
+      <figcaption><b>Head-to-head record</b> across matched RULER and LongBench runs. The methods that keep all of their memory also read the question slightly differently from ContourKV, a difference the paper flags.</figcaption>
+    </figure>
+    <p>With the size enforced, ContourKV beats KVzip in 93 of 160 runs and loses 22, while using 28 to 1078 times less memory. Sixteen of those losses come from one setting, RULER with 32 tokens, where KVzip's full memory beats every method that truly saves memory. Against Compactor, the strongest method that also saves memory, it ties, as expected when both are already close to the best possible choice. KVzip's scores take 8.7 to 13.6 times longer to compute than reading the text once; with SnapKV's cheaper scores, ContourKV ties SnapKV.</p>
     <h3>Retrieval gains come from seeing the question</h3>
     <p>In the needle-in-a-haystack test, the test setup drops tokens after the question has already been read, so the method can use the question to decide what to keep. Re-running eight matched cases on Llama-3.1-8B so that the method decides without the question erases the gain, and the extra memory explains none of it.</p>
     <figure>
@@ -193,34 +197,8 @@
   </div>
 </section>
 
-<section id="contourkv">
-  <div class="wrap">
-    <h2>ContourKV</h2>
-    <p>ContourKV keeps the most recent tokens (up to 32) in every head plus that head's highest-scoring tokens, and deletes the rest, so every head holds exactly the target number. With KVzip's scores, it differs from KVzip only in how many tokens each head gets, in keeping recent tokens instead of the first four, and in deleting tokens instead of hiding them.</p>
-    <figure>
-      <div class="card table-card">
-        <table>
-          <thead><tr><th>Compared with</th><th>Their memory</th><th>Size not enforced</th><th>Size enforced</th></tr></thead>
-          <tbody id="wtl-body"></tbody>
-        </table>
-      </div>
-      <div class="legend"><span><i style="background:var(--accent)"></i>ContourKV wins</span><span><i style="background:var(--evicted)"></i>tie</span><span><i style="background:var(--ink)"></i>ContourKV loses</span></div>
-      <figcaption><b>Head-to-head record</b> across matched RULER and LongBench runs. The methods that keep all of their memory also read the question slightly differently from ContourKV, a difference the paper flags.</figcaption>
-    </figure>
-    <p>With the size enforced, ContourKV beats KVzip in 93 of 160 runs and loses 22, while using 28 to 1078 times less memory. Sixteen of those losses come from one setting, RULER with 32 tokens, where KVzip's full memory beats every method that truly saves memory. Against Compactor, the strongest method that also saves memory, it ties, as expected when both are already close to the best possible choice. KVzip's scores take 8.7 to 13.6 times longer to compute than reading the text once; with SnapKV's cheaper scores, ContourKV ties SnapKV.</p>
-  </div>
-</section>
-
-<section id="predictions" class="band">
-  <div class="wrap">
-    <h2>Next-word prediction</h2>
-    <p>Everything above measures how much each look-back changes. What matters in the end is how well the model predicts the next word. Using the swap rule only in the heads our map flags improves next-word prediction on five of eight models, capturing 88 to 98% of the improvement from using it everywhere. On the three Qwen3 models the map flags the wrong heads. The swap rule needs the full, uncompressed result, which a real system does not have, and a small predictor trained to imitate it recovers at most 5% of the improvement.</p>
-    <figure class="fig-mid">
-      <div class="card"><a class="zoom" href="assets/t13c_redirect_paper.png" title="Open full size"><img src="assets/t13c_redirect_paper.png" width="1781" height="811" alt="Bar charts of the change in next-word prediction error when the swap rule is used in different sets of heads" loading="lazy"></a></div>
-      <figcaption><b>Next-word prediction error</b> when the swap rule is used only in heads chosen by our map, by an alternative ranking, at random, or in every head, with 8 tokens kept. Lower is better, and the dashed line is the model with no tokens dropped. Percentages give each set's share of the improvement from using every head.</figcaption>
-    </figure>
-
-    <h3>Limitations</h3>
+<section id="limits">
+  <div class="wrap">    <h2>Limitations</h2>
     <ul class="scope">
       <li><b>A lower bound.</b> The exact search finished on only 159 of 939 cases, so the true best choice could be somewhat better than what we report.</li>
       <li><b>Look-backs, not answers.</b> We measure how much each attention look-back changes, not the quality of the model's answers.</li>
@@ -230,7 +208,7 @@
   </div>
 </section>
 
-<section id="cite">
+<section id="cite" class="band">
   <div class="wrap">
     <h2>Citation</h2>
     <div class="bib">

@@ -4,93 +4,237 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trust the Mass: Forced Weights in KV-Cache Eviction</title>
-<meta name="description" content="Keeping the largest attention weights is already near-optimal for KV-cache eviction. Evaluating deployed methods in KVPress shows that large reported gains come from memory and query confounds rather than better token selection.">
+<meta name="description" content="When a language model must forget part of its memory, keeping the tokens it pays the most attention to is already close to the best possible choice. Several popular methods also save far less memory than benchmarks suggest.">
 <meta property="og:title" content="Trust the Mass: Forced Weights in KV-Cache Eviction">
-<meta property="og:description" content="The best kept subset closes only a median 2 to 5% of the remaining gap to full attention. Enforcing physical per-head budgets with ContourKV beats KVzip in 93 of 160 runs using 28 to 1078x less memory.">
+<meta property="og:description" content="The best possible set of tokens to keep beats keeping the most-attended tokens by a median of only 2 to 5% of the remaining error. ContourKV beats KVzip in 93 of 160 benchmark runs while using 28 to 1078 times less memory.">
 <meta property="og:type" content="article">
 <meta name="twitter:card" content="summary">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='5' y='8' width='6' height='19' rx='1' fill='%238c1515'/%3E%3Crect x='13' y='14' width='6' height='13' rx='1' fill='%238c1515'/%3E%3Crect x='21' y='19' width='6' height='8' rx='1' fill='%23d4d4d8'/%3E%3Cline x1='3' y1='17.5' x2='29' y2='17.5' stroke='%2318181b' stroke-width='1.6' stroke-dasharray='3 2.4'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='5' height='22' rx='1' fill='%238c1515'/%3E%3Crect x='10' y='10' width='5' height='17' rx='1' fill='%238c1515'/%3E%3Crect x='17' y='15' width='5' height='12' rx='1' fill='%238c1515'/%3E%3Crect x='24' y='21' width='5' height='6' rx='1' fill='%23c9cbcf'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;0,7..72,600;1,7..72,400;1,7..72,500&family=Inter:wght@400;500;600&family=Schibsted+Grotesk:wght@800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
+
 <nav class="toc" aria-label="On this page">
-  <a href="#abstract"><i></i>Abstract</a>
-  <a href="#ceiling"><i></i>Selection ceiling</a>
-  <a href="#mass"><i></i>Dropped mass</a>
-  <a href="#memory"><i></i>Measured memory</a>
+  <a href="#top"><i></i>TL;DR</a>
+  <a href="#setup"><i></i>Forced weights</a>
+  <a href="#best"><i></i>Selection ceiling</a>
+  <a href="#signal"><i></i>Dropped mass</a>
+  <a href="#methods"><i></i>Popular methods</a>
+  <a href="#benchmarks"><i></i>Measured memory</a>
   <a href="#contourkv"><i></i>ContourKV</a>
-  <a href="#bibtex"><i></i>BibTeX</a>
+  <a href="#predictions"><i></i>Next-word prediction</a>
+  <a href="#cite"><i></i>Citation</a>
 </nav>
+
+<div class="wrap hero-shell" id="top">
+  <header class="hero">
+    <h1 class="wordmark">
+      <svg class="mark" viewBox="0 0 100 80" aria-hidden="true">
+        <rect x="4" y="8" width="15" height="66" rx="2" fill="#8c1515"/>
+        <rect x="23" y="22" width="15" height="52" rx="2" fill="#8c1515"/>
+        <rect x="42" y="36" width="15" height="38" rx="2" fill="#8c1515"/>
+        <line x1="65.5" y1="2" x2="65.5" y2="74" stroke="#1d2126" stroke-width="2" stroke-dasharray="4 3.5"/>
+        <rect x="70" y="52" width="12" height="22" rx="2" fill="#fff" stroke="#b9bcc1" stroke-width="2"/>
+        <rect x="86" y="62" width="10" height="12" rx="2" fill="#fff" stroke="#b9bcc1" stroke-width="2"/>
+        <line x1="1" y1="76" x2="99" y2="76" stroke="#1d2126" stroke-width="2.5"/>
+      </svg>
+      <span>Trust the <span class="mass">Mass</span></span>
+    </h1>
+    <p class="subtitle">Forced Weights in KV&#8209;Cache Eviction</p>
+    <p class="authors">
+      <a href="https://stanford.edu/~jackshi/">Jack Shi</a><sup>*</sup><span class="and">and</span><a href="https://jerrygu.com">Jerry Gu</a><sup>*</sup>
+    </p>
+    <p class="affil">Department of Computer Science, Stanford University</p>
+    <p class="eq"><sup>*</sup>Equal contribution</p>
+    <p class="venue">Accepted at the <b>Workshop on Foundations of Efficient Deep Learning</b>, NeurIPS 2026</p>
+    <div class="buttons">
+      <a class="btn btn-primary" href="https://arxiv.org/abs/2608.25230">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5.2L12.5 5v9.5h-8.5z"/><path d="M9 1.8V5h3.2"/><path d="M6 8h4.5M6 10.5h4.5"/></svg>
+        Paper
+      </a>
+      <a class="btn" href="#cite">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 3.5 2 8l3.5 4.5M10.5 3.5 14 8l-3.5 4.5"/></svg>
+        BibTeX
+      </a>
+    </div>
+  </header>
+</div>
+
 <main>
 
-<header class="hero">
-  <h1>Trust the Mass: Forced Weights in KV&#8209;Cache Eviction</h1>
-  <p class="authors">
-    <a href="https://stanford.edu/~jackshi/">Jack Shi</a><sup>*</sup> and <a href="https://jerrygu.com">Jerry Gu</a><sup>*</sup>
-  </p>
-  <p class="affiliation">Department of Computer Science, Stanford University</p>
-  <p class="equal-contrib"><sup>*</sup>Equal contribution</p>
-  <p class="venue">Accepted at the Workshop on Foundations of Efficient Deep Learning, NeurIPS 2026</p>
-  <div class="buttons">
-    <a class="btn btn-primary" href="https://arxiv.org/abs/2608.25230">
-      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5.2L12.5 5v9.5h-8.5z"/><path d="M9 1.8V5h3.2"/><path d="M6 8h4.5M6 10.5h4.5"/></svg>
-      Paper
-    </a>
-    <a class="btn" href="#bibtex">
-      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M3 10.5c0-3.2 1.9-5.6 4.6-6.5l.6 1.2C6.5 6 5.6 7.2 5.4 8.4c.2-.1.5-.15.8-.15 1.2 0 2.1.9 2.1 2.1S7.4 12.5 6.1 12.5C4.3 12.5 3 11.7 3 10.5Zm6.5 0c0-3.2 1.9-5.6 4.6-6.5l.6 1.2c-1.7.8-2.6 2-2.8 3.2.2-.1.5-.15.8-.15 1.2 0 2.1.9 2.1 2.1s-.9 2.15-2.2 2.15c-1.8 0-3.1-.8-3.1-2Z"/></svg>
-      BibTeX
-    </a>
+<section class="lead">
+  <div class="wrap">
+    <div class="contrib" style="margin-top:0">
+      <p class="kicker">TL;DR</p>
+      <ul>
+        <li><strong>Smarter selection has little room.</strong> When a language model's memory of past tokens grows too large, eviction methods keep some tokens and drop the rest. Searching for the best possible set to keep in 220,656 cases from eight models, we find it beats simply keeping the most-attended tokens by a median of only 2 to 5% of the remaining error, and a simple swap rule finds that improvement.</li>
+        <li><strong>A cheap signal shows when it matters.</strong> The share of attention that lands on the dropped tokens predicts which cases have room to improve, across ten models.</li>
+        <li><strong>Some benchmark wins come without memory savings.</strong> In the standard benchmark library, several leading methods, including KVzip, hide dropped tokens instead of deleting them, so they still use all of the memory. Making them truly delete down to the same size costs 14 to 62 benchmark points, and an 87.6-point retrieval gain comes from letting the method read the question before deciding what to keep.</li>
+        <li><strong>ContourKV.</strong> A simple method that uses KVzip's scores but truly deletes tokens. It beats KVzip in 93 of 160 benchmark runs while using 28 to 1078 times less memory, and ties Compactor, the strongest method that also saves memory.</li>
+      </ul>
+    </div>
   </div>
-</header>
-
-<section id="abstract" class="abstract-section">
-  <h2>Abstract</h2>
-  <p class="abstract-text">Every deployed KV-cache-eviction rule and every top-<em>k</em> sparse-attention rule keeps a subset of the keys, discards the rest, and renormalizes the attention weights over the kept set. Identifying the exact best subset under that constraint, we find that keeping the largest weights is already near-optimal, since the best subset we find closes only a median 2 to 5% of the remaining gap to full attention. We evaluate deployed eviction methods in KVPress and find that methods with non-uniform per-head budgets apply attention masks over the full cache because dense cache tensors require equal length across heads. Truncating each head to the target budget lowers benchmark scores by 14 to 62 points, and computing token importance with the question in context accounts for 87.6 points in retrieval accuracy. We propose ContourKV, a training-free rule that applies KVzip's score under a physically enforced budget. It beats KVzip in 93 of 160 benchmark runs across RULER and LongBench while using 28 to 1078 times less memory, and ties Compactor, the strongest baseline at equal memory.</p>
 </section>
 
-<section id="ceiling">
-  <h2>Selection Ceiling Under Forced Weights</h2>
-  <p>Classical coreset and subset-selection methods choose points geometrically and optimize new weights over the retained set. KV-cache eviction instead <em>forces</em> the weights on the kept keys to be the renormalized softmax probabilities, leaving only the choice of subset. We enumerate the exact best subset within a candidate pool across 220,656 attention rows from eight models at four budgets (<em>s</em> &isin; {4, 8, 16, 32}), supplemented by a full-key mixed-integer solver across ten models (0.6B to 14B). Keeping the largest softmax weights (top-mass) is already near-optimal: the best subset improves on top-mass by a median of only 2.1 to 4.7% of the remaining gap to dense attention, and a greedy single-key swap selector recovers that median in full.</p>
-  <figure>
-    <img src="assets/b9_ceiling_compact_sym.png" alt="Selection ceiling across model families and budgets" loading="lazy">
-    <figcaption><strong>Figure 1: Selection ceiling.</strong> Normalized attention output error where top-mass sits at 1 and dense attention at 0. Across budgets <em>s</em> &isin; {4, 8, 16, 32}, the candidate-set optimum closes only a median 2 to 5% of the remaining gap to dense attention, and the greedy balancing selector matches that median.</figcaption>
-  </figure>
+<section id="setup" class="band">
+  <div class="wrap">
+    <h2>Forced weights</h2>
+    <p>As a language model reads, it stores information about every past token so it can look back at it. This memory grows with the length of the text and becomes the main cost for long inputs. Eviction methods keep it small by deleting most past tokens and keeping a fixed number.</p>
+    <p>When the model looks back, each token gets an attention weight, and the weights add up to 1. After eviction, the model can only look at the tokens it kept, and it simply scales their original weights up until they add up to 1 again. It cannot change the weights to make up for what was dropped. So the only decision an eviction method makes is which tokens to keep.</p>
+    <p>That has a useful consequence. The error from dropping tokens equals the share of attention that was dropped, times how far the dropped tokens' average is from the kept tokens' average. When little attention lands on the dropped tokens, no choice can do much better than keeping the most-attended ones. Finding the truly best set is still a hard computational problem, even in the simplest cases.</p>
+
+    <figure>
+      <div class="card example" id="example">
+        <div class="tabs" role="tablist" aria-label="Tokens to keep">
+          <button class="tab" role="tab" aria-selected="true" data-set="0"><span class="tk">Most attended</span><span class="tt">Keep tokens 1 and 2</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-set="1"><span class="tk">Best pair</span><span class="tt">Keep tokens 1 and 3</span></button>
+          <button class="tab" role="tab" aria-selected="false" data-set="2"><span class="tk">Other pair</span><span class="tt">Keep tokens 2 and 3</span></button>
+        </div>
+        <div class="example-body">
+          <div class="line-scroll"><svg id="line" viewBox="0 0 720 196" role="img" aria-label="Number line with three tokens, the full output, and the output after dropping one token"></svg></div>
+          <dl class="readout">
+            <div><dt>Output after dropping</dt><dd id="ro-m"></dd></div>
+            <div><dt>Error</dt><dd id="ro-e" class="hot"></dd></div>
+            <div><dt>Compared with the best pair</dt><dd id="ro-r"></dd></div>
+          </dl>
+          <p class="example-note">If the model could choose new weights, tokens 1 and 2 would reproduce the full output exactly by mixing them 25% and 75%. Because it must keep the original weights, the best pair is tokens 1 and 3, and keeping the two most-attended tokens gives an error 1.22 times larger.</p>
+        </div>
+      </div>
+      <figcaption><b>A small example from the paper.</b> Three tokens with values &minus;1, 1 and 5 receive 45%, 45% and 10% of the attention, so the full output is 0.5. The model may keep two. Circle size shows each token's attention. Pick a pair to see where the output lands after the third token is dropped.</figcaption>
+    </figure>
+  </div>
 </section>
 
-<section id="mass">
-  <h2>Predicting Headroom with Evicted Attention Mass</h2>
-  <p>While keeping the largest weights is near-optimal on most rows, a subset swap can reduce error when the evicted keys carry substantial attention weight and opposing value deviations. The total softmax weight of the evicted keys (dropped mass, <em>m&#772;<sub>s</sub></em>) predicts which instances admit a >10% improvement over top-mass with an AUC of 0.76 to 0.89 across all ten models, outperforming bounds based on value-vector diameter or variance. Aggregated per attention head, dropped mass identifies flat heads whose location is set by model architecture (such as QK-normalization and sliding-window geometry).</p>
-  <figure>
-    <img src="assets/b3_map_sym.png" alt="Dropped attention mass and subset headroom across layers and heads" loading="lazy">
-    <figcaption><strong>Figure 2: Per-head dropped mass and optimality gap.</strong> Left of each pair: median dropped attention mass at <em>s</em> = 8 across layers and heads. Right: median ratio between top-mass error and the candidate-set optimum (<em>&kappa;&#770;</em>), reaching cell-level AUC 0.82 to 0.94.</figcaption>
-  </figure>
+<section id="best">
+  <div class="wrap">
+    <h2>Selection ceiling</h2>
+    <p>We compared keeping the most-attended tokens against the best possible set of the same size, searched among a shortlist of the most promising tokens, keeping 4 to 32 tokens per attention head. Across 220,656 cases from eight models, the best set removes a median of 2.1 to 4.7% of the remaining error. A simple rule finds it: start from the most-attended tokens and swap one at a time while the error keeps falling. An exact search over all tokens, run on 960 cases from the four main models, keeps the median below 12%.</p>
+    <figure>
+      <div class="card"><a class="zoom" href="assets/b9_ceiling_compact_sym.png" title="Open full size"><img src="assets/b9_ceiling_compact_sym.png" width="1603" height="740" alt="Bar charts showing that the best possible choice of tokens removes only a small share of the error left by keeping the most-attended tokens"></a></div>
+      <figcaption><b>How close the simple choice is to the best one.</b> Each bar is the error left by keeping the tokens with the most attention, scaled so that 1 is that error and 0 is no error (keeping every token). The orange top is the most that any other choice of the same number of tokens can remove: a median of 2 to 5% across eight models and every memory size. The green marks show a simple swap rule reaching that best choice. Left: all eight models combined. Middle: Qwen2.5-1.5B. Right: OLMo-2-1B, the model with the most room to improve.</figcaption>
+    </figure>
+    <p>Beyond 32 tokens a complete search is too expensive, but the swap rule still shows how much is possible at least. That share stays flat as the memory grows, while the attention on dropped tokens, and with it the error itself, keeps shrinking.</p>
+    <figure>
+      <div class="card table-card">
+        <table class="budgets">
+          <thead>
+            <tr><th>Tokens kept per head</th><th class="num">4</th><th class="num">8</th><th class="num">16</th><th class="num">32</th><th class="num edge">64</th><th class="num">128</th><th class="num">256</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="name">Error removed by the swap rule</td><td class="num">3.2%</td><td class="num">5.7%</td><td class="num">5.8%</td><td class="num">5.0%</td><td class="num edge hot">7.5%</td><td class="num hot">7.7%</td><td class="num hot">6.1%</td></tr>
+            <tr><td class="name">Attention on dropped tokens</td><td class="num">38%</td><td class="num">28%</td><td class="num">20%</td><td class="num">13%</td><td class="num edge">8%</td><td class="num">4%</td><td class="num">2%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><b>Larger memories.</b> Medians over Qwen2.5-1.5B and OLMo-2-1B. The dashed line marks where a complete search stops being possible.</figcaption>
+    </figure>
+  </div>
 </section>
 
-<section id="memory">
-  <h2>Deployed Selectors and Benchmark Accounting</h2>
-  <p>Deployed eviction rules (SnapKV, H2O, Quest, StreamingLLM) incur 1.4 to 4.2&times; the error of the best subset because they must select tokens before seeing future queries. Consequently, reported benchmark margins reflect how well methods predict future weights alongside differences in memory and query accounting. Evaluating 14 baselines on RULER and LongBench in <code>kvpress</code> (4k to 32k context across Llama-3.1-8B, Qwen2.5-7B, Qwen3-8B, and Qwen3-14B), we find that query-agnostic methods with non-uniform per-head budgets (including KVzip) store their selection as an attention mask over the full cache tensor rather than freeing memory. Forcing each head to compress to the target budget lowers scores by 14.1 to 62.2 points, and compressing the cache before the question enters the context lowers needle retrieval accuracy by 87.6 points.</p>
-  <figure>
-    <img src="assets/c8_method_headroom.png" alt="Excess error of deployed eviction selectors predicted by dropped mass" loading="lazy">
-    <figcaption><strong>Figure 3: Deployed selectors vs. the per-row optimum.</strong> Left: ROC of dropped mass as a predictor of excess error at <em>s</em> = 8 on Qwen2.5-1.5B. Right: pooled AUC with 95% confidence intervals across model families.</figcaption>
-  </figure>
+<section id="signal" class="band">
+  <div class="wrap">
+    <h2>Dropped mass</h2>
+    <p>The share of attention that lands on the dropped tokens predicts the cases where a better choice cuts the error by more than 10%. Across ten models, it ranks such a case above one without room 76 to 89% of the time, better than earlier error bounds. Averaged over each attention head, it forms a map, and which heads have room is decided by how the model is built.</p>
+    <figure class="fig-map">
+      <div class="card"><a class="zoom" href="assets/b3_map_sym.png" title="Open full size"><img src="assets/b3_map_sym.png" width="2340" height="2402" alt="Heat maps, one square per attention head, comparing the attention on dropped tokens with the room for a better choice, for five models and three kinds of text" loading="lazy"></a></div>
+      <figcaption><b>The map.</b> Each square is one attention head, with layers as rows, when 8 tokens are kept. In each pair, the left map shows the attention on dropped tokens and the right map shows how much worse keeping the most-attended tokens is than the best choice. The two line up head by head, and the pattern holds for prose, code and mixed text.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="methods">
+  <div class="wrap">
+    <h2>Popular methods</h2>
+    <p>Popular methods are far from this limit. Keeping 8 tokens, SnapKV, H2O, Quest and StreamingLLM have 1.4 to 2.0 times the error of the best choice, while keeping the most-attended tokens comes within 3% of it on three of the four main models. When one saved memory has to serve every later question, the gap grows to as much as 4.2 times for TOVA, H2O and SnapKV. Most of that gap comes from guessing wrong about which tokens will matter, so differences between these methods mostly reflect how well they guess.</p>
+    <figure class="fig-mid">
+      <div class="card"><a class="zoom" href="assets/c8_method_headroom.png" title="Open full size"><img src="assets/c8_method_headroom.png" width="1848" height="1021" alt="Curves and intervals showing how well the attention on dropped tokens predicts each method's extra error" loading="lazy"></a></div>
+      <figcaption><b>The same signal predicts each method's extra error.</b> Left: on Qwen2.5-1.5B with 8 tokens kept; a curve closer to the top left means a better prediction. Right: the same measure for four models, with 95% intervals. The row labeled certificate is the signal itself.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="benchmarks" class="band">
+  <div class="wrap">
+    <h2>Measured memory</h2>
+    <p>We tested 14 methods from NVIDIA's <code>kvpress</code> library, plus H2O, on two standard long-text benchmarks, RULER and LongBench, with four models and texts of 4,096 to 32,768 tokens. The library stores each layer's memory as one block in which every attention head gets the same number of slots. Methods that give different heads different amounts, including KVzip, therefore cannot delete anything. They hide the dropped tokens and keep the whole memory.</p>
+    <figure>
+      <div class="card table-card">
+        <table>
+          <thead><tr><th>Methods</th><th class="num">Memory kept</th><th>Dropped tokens are</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Same number of tokens in every head<span class="sub">SnapKV, Compactor and seven other library methods</span></td><td class="num">0.09 to 3.6%</td><td><span class="pill">deleted</span></td></tr>
+            <tr><td class="name">Different number per head<span class="sub">KVzip, FastKVzip, Ada-KV, ExpectedAttention, DuoAttention</span></td><td class="num hot">100%</td><td><span class="pill warn">hidden</span></td></tr>
+            <tr><td class="name">ContourKV, size not enforced</td><td class="num">3.5 to 84%</td><td><span class="pill">deleted</span></td></tr>
+            <tr><td class="name">ContourKV, size enforced</td><td class="num">same as SnapKV</td><td><span class="pill">deleted</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><b>Memory each method really keeps,</b> as a share of keeping every token, measured on the benchmark texts. KVzip keeps 28 to 1078 times more than SnapKV.</figcaption>
+    </figure>
+    <p>When the same choices are made to truly delete down to the target size, scores fall in 140 of 157 runs: by 14.1 points on LongBench and by up to 62.2 points on RULER.</p>
+
+    <h3>Retrieval gains come from seeing the question</h3>
+    <p>In the needle-in-a-haystack test, the test setup drops tokens after the question has already been read, so the method can use the question to decide what to keep. Re-running eight matched cases on Llama-3.1-8B so that the method decides without the question erases the gain, and the extra memory explains none of it.</p>
+    <figure>
+      <div class="card table-card">
+        <table>
+          <thead><tr><th>Re-run</th><th class="num">Change in accuracy (points)</th><th class="num">Memory used</th></tr></thead>
+          <tbody>
+            <tr><td class="name">Choose using only the document</td><td class="num hot">&minus;88.2 <span class="sub">[&minus;90.0, &minus;86.4]</span></td><td class="num">1.02&times;</td></tr>
+            <tr><td class="name">Drop tokens before the question arrives</td><td class="num hot">&minus;87.6 <span class="sub">[&minus;89.0, &minus;86.3]</span></td><td class="num">1.43&times;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><b>Where the retrieval gain comes from.</b> Change against the original run, keeping 64 or 128 tokens per head, with 95% intervals. Memory is relative to a run that dropped tokens before the question.</figcaption>
+    </figure>
+  </div>
 </section>
 
 <section id="contourkv">
-  <h2>ContourKV and Cross-Entropy Loss</h2>
-  <p>To evaluate KVzip's context-reconstruction score under actual memory reduction, we introduce <strong>ContourKV</strong>, a training-free rule that retains a recency window of min(32, <em>s</em>/2) tokens plus each head's highest-scoring tokens and physically evicts the rest to enforce a strict per-head budget <em>s</em>. Compared against KVzip's masked full cache in <code>kvpress</code>, ContourKV uses 28 to 1078&times; less memory, beats KVzip in 93 of 160 benchmark runs across RULER and LongBench, and ties Compactor at equal memory. In our held-out cross-entropy analysis, applying oracle value-balancing swaps to flat heads recovers 88 to 98% of the all-head loss reduction on five of eight model families, though cell-level transfer varies across Qwen3 scales.</p>
-  <figure>
-    <img src="assets/t13c_redirect_paper.png" alt="Change in held-out cross-entropy when balancing flat cells vs random cells" loading="lazy">
-    <figcaption><strong>Figure 4: Held-out cross-entropy reduction at <em>s</em> = 8.</strong> Change in cross-entropy loss (nats) relative to top-mass when applying balancing swaps to flat cells selected by the dropped-mass map, gradient-ranked cells, random cells of equal count, or all cells.</figcaption>
-  </figure>
+  <div class="wrap">
+    <h2>ContourKV</h2>
+    <p>ContourKV keeps the most recent tokens (up to 32) in every head plus that head's highest-scoring tokens, and deletes the rest, so every head holds exactly the target number. With KVzip's scores, it differs from KVzip only in how many tokens each head gets, in keeping recent tokens instead of the first four, and in deleting tokens instead of hiding them.</p>
+    <figure>
+      <div class="card table-card">
+        <table>
+          <thead><tr><th>Compared with</th><th>Their memory</th><th>Size not enforced</th><th>Size enforced</th></tr></thead>
+          <tbody id="wtl-body"></tbody>
+        </table>
+      </div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>ContourKV wins</span><span><i style="background:var(--evicted)"></i>tie</span><span><i style="background:var(--ink)"></i>ContourKV loses</span></div>
+      <figcaption><b>Head-to-head record</b> across matched RULER and LongBench runs. The methods that keep all of their memory also read the question slightly differently from ContourKV, a difference the paper flags.</figcaption>
+    </figure>
+    <p>With the size enforced, ContourKV beats KVzip in 93 of 160 runs and loses 22, while using 28 to 1078 times less memory. Sixteen of those losses come from one setting, RULER with 32 tokens, where KVzip's full memory beats every method that truly saves memory. Against Compactor, the strongest method that also saves memory, it ties, as expected when both are already close to the best possible choice. KVzip's scores take 8.7 to 13.6 times longer to compute than reading the text once; with SnapKV's cheaper scores, ContourKV ties SnapKV.</p>
+  </div>
 </section>
 
-<section id="bibtex">
-  <h2>BibTeX</h2>
-  <div class="bibtex-wrap">
-    <button id="copy-bibtex" type="button">Copy</button>
+<section id="predictions" class="band">
+  <div class="wrap">
+    <h2>Next-word prediction</h2>
+    <p>Everything above measures how much each look-back changes. What matters in the end is how well the model predicts the next word. Using the swap rule only in the heads our map flags improves next-word prediction on five of eight models, capturing 88 to 98% of the improvement from using it everywhere. On the three Qwen3 models the map flags the wrong heads. The swap rule needs the full, uncompressed result, which a real system does not have, and a small predictor trained to imitate it recovers at most 5% of the improvement.</p>
+    <figure class="fig-mid">
+      <div class="card"><a class="zoom" href="assets/t13c_redirect_paper.png" title="Open full size"><img src="assets/t13c_redirect_paper.png" width="1781" height="811" alt="Bar charts of the change in next-word prediction error when the swap rule is used in different sets of heads" loading="lazy"></a></div>
+      <figcaption><b>Next-word prediction error</b> when the swap rule is used only in heads chosen by our map, by an alternative ranking, at random, or in every head, with 8 tokens kept. Lower is better, and the dashed line is the model with no tokens dropped. Percentages give each set's share of the improvement from using every head.</figcaption>
+    </figure>
+
+    <h3>Limitations</h3>
+    <ul class="scope">
+      <li><b>A lower bound.</b> The exact search finished on only 159 of 939 cases, so the true best choice could be somewhat better than what we report.</li>
+      <li><b>Look-backs, not answers.</b> We measure how much each attention look-back changes, not the quality of the model's answers.</li>
+      <li><b>One question at a time.</b> Keeping the most-attended tokens is near-best for the current question. A memory reused for later questions has to choose before seeing them.</li>
+      <li><b>Model range.</b> Standard-attention models from 0.6B to 14B parameters, and texts up to 16,384 tokens for the analysis.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="cite">
+  <div class="wrap">
+    <h2>Citation</h2>
+    <div class="bib">
+      <button id="copy-bibtex" type="button">Copy</button>
 <pre id="bibtex-text">@inproceedings{shi2026trustthemass,
   title         = {Trust the Mass: Forced Weights in {KV}-Cache Eviction},
   author        = {Jack Shi and Jerry Gu},
@@ -100,75 +244,146 @@
   archivePrefix = {arXiv},
   primaryClass  = {cs.LG}
 }</pre>
+    </div>
   </div>
 </section>
 
-<footer>
-  <p>Jack Shi and Jerry Gu &middot; Stanford University &middot; <a href="https://arxiv.org/abs/2608.25230">arXiv:2608.25230</a></p>
-</footer>
-
 </main>
 
+<footer>
+  <div class="wrap">Jack Shi and Jerry Gu &middot; Stanford University &middot; <a href="https://arxiv.org/abs/2608.25230">arXiv:2608.25230</a></div>
+</footer>
+
 <script>
-document.getElementById('copy-bibtex').addEventListener('click', function () {
-  var text = document.getElementById('bibtex-text').textContent;
-  var button = this;
-  function done() {
-    button.textContent = 'Copied';
-    setTimeout(function () { button.textContent = 'Copy'; }, 1500);
+(function () {
+  /* Example A.1: three tokens, keep two */
+  var v = [-1, 1, 5], p = [0.45, 0.45, 0.10];
+  var sets = [[0, 1], [0, 2], [1, 2]];
+  var mu = 0;
+  for (var i = 0; i < 3; i++) mu += p[i] * v[i];
+  function out(s) {
+    var mass = 0, sum = 0;
+    s.forEach(function (j) { mass += p[j]; sum += p[j] * v[j]; });
+    return sum / mass;
   }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(done);
-  } else {
-    var area = document.createElement('textarea');
-    area.value = text;
-    document.body.appendChild(area);
-    area.select();
-    document.execCommand('copy');
-    document.body.removeChild(area);
-    done();
+  var errs = sets.map(function (s) { return Math.abs(mu - out(s)); });
+  var best = Math.min.apply(null, errs);
+
+  var NS = "http://www.w3.org/2000/svg";
+  var svg = document.getElementById("line");
+  function X(val) { return 70 + (val + 1.5) * (580 / 7); }
+  function el(tag, attrs, text) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    svg.appendChild(e);
+    return e;
   }
-});
+  var AX = 122, INK = "#1d2126", RED = "#8c1515", GREY = "#b9bcc1";
 
-var clickedHash = null;
-var clickTimer = null;
+  function fmt(x) { return (x < 0 ? "−" : "") + Math.abs(x).toFixed(3); }
 
-function markToc() {
-  var links = document.querySelectorAll(".toc a");
-  if (!links.length) return;
-  if (clickedHash) {
-    links.forEach(function (a) {
-      a.classList.toggle("active", a.getAttribute("href") === clickedHash);
+  function draw(k) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var kept = sets[k], m = out(kept);
+    el("line", { x1: X(-1.5), y1: AX, x2: X(5.5), y2: AX, stroke: "#cdcdc8", "stroke-width": 1.5 });
+    for (var t = -1; t <= 5; t++) el("line", { x1: X(t), y1: AX - 4, x2: X(t), y2: AX + 4, stroke: "#cdcdc8", "stroke-width": 1.5 });
+
+    /* full output */
+    el("line", { x1: X(mu), y1: 66, x2: X(mu), y2: AX, stroke: INK, "stroke-width": 1.3, "stroke-dasharray": "3 3" });
+    el("path", { d: "M" + (X(mu) - 6) + " 58 h12 l-6 9 z", fill: INK });
+    var leftOfMu = out(kept) < mu;
+    el("text", { x: X(mu) + (leftOfMu ? 10 : -10), y: 62, "text-anchor": leftOfMu ? "start" : "end", "font-family": "Inter, sans-serif", "font-size": 13, fill: INK }, "full output = 0.50");
+
+    /* kept output */
+    el("line", { x1: X(m), y1: 34, x2: X(m), y2: AX, stroke: RED, "stroke-width": 1.6, "stroke-dasharray": "3 3" });
+    el("path", { d: "M" + (X(m) - 6) + " 26 h12 l-6 9 z", fill: RED });
+    var right = m > mu;
+    var lab = el("text", { x: X(m) + (right ? 10 : -10), y: 22, "text-anchor": right ? "start" : "end", "font-family": "Inter, sans-serif", "font-size": 13, "font-weight": 600, fill: RED });
+    lab.appendChild(document.createTextNode("after dropping"));
+    var sub = document.createElementNS(NS, "tspan");
+    sub.textContent = "";
+    lab.appendChild(sub);
+    var rest = document.createElementNS(NS, "tspan");
+    rest.textContent = " = " + fmt(m);
+    lab.appendChild(rest);
+
+    /* error bracket */
+    var a = Math.min(X(m), X(mu)), b = Math.max(X(m), X(mu)), y = 92;
+    el("path", { d: "M" + a + " " + (y - 5) + " v5 H" + b + " v-5", fill: "none", stroke: RED, "stroke-width": 1.4 });
+
+    /* keys */
+    for (var j = 0; j < 3; j++) {
+      var on = kept.indexOf(j) >= 0, r = 24 * Math.sqrt(p[j] / 0.45);
+      el("circle", { cx: X(v[j]), cy: AX, r: r, fill: on ? RED : "#ffffff", "fill-opacity": on ? 0.88 : 1, stroke: on ? RED : GREY, "stroke-width": 2, "stroke-dasharray": on ? "none" : "4 3" });
+      el("text", { x: X(v[j]), y: 168, "text-anchor": "middle", "font-family": "Inter, sans-serif", "font-size": 13.5, "font-weight": 600, fill: on ? INK : "#737a83" }, "token " + (j + 1) + (on ? "" : ", dropped"));
+      el("text", { x: X(v[j]), y: 186, "text-anchor": "middle", "font-family": "IBM Plex Mono, monospace", "font-size": 12, fill: "#737a83" }, "value " + (v[j] < 0 ? "−" : "") + Math.abs(v[j]) + ", attention " + Math.round(p[j] * 100) + "%");
+    }
+
+    document.getElementById("ro-m").textContent = fmt(m);
+    document.getElementById("ro-e").textContent = errs[k].toFixed(3);
+    var ratio = errs[k] / best;
+    document.getElementById("ro-r").textContent = ratio < 1.0005 ? "best" : ratio.toFixed(2) + "×";
+  }
+
+  var tabs = document.querySelectorAll(".tab");
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      tabs.forEach(function (t) { t.setAttribute("aria-selected", t === tab ? "true" : "false"); });
+      draw(+tab.getAttribute("data-set"));
     });
-    return;
-  }
-  var current = links[0];
-  var atBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 40);
-  if (atBottom) {
-    current = links[links.length - 1];
-  } else {
-    links.forEach(function (a) {
-      var t = document.querySelector(a.getAttribute("href"));
-      if (t && t.getBoundingClientRect().top <= window.innerHeight * 0.45) current = a;
-    });
-  }
-  links.forEach(function (a) { a.classList.toggle("active", a === current); });
-}
-
-document.querySelectorAll('a[href^="#"]').forEach(function (a) {
-  a.addEventListener("click", function () {
-    clickedHash = a.getAttribute("href");
-    markToc();
-    clearTimeout(clickTimer);
-    clickTimer = setTimeout(function () {
-      clickedHash = null;
-      markToc();
-    }, 900);
   });
-});
+  draw(0);
 
-document.addEventListener("scroll", markToc, { passive: true });
-window.addEventListener("load", markToc);
+  /* Win / tie / loss table (Table 9 in the paper) */
+  var rows = [
+    ["KVzip", "all", [146, 9, 2], [93, 45, 22]],
+    ["ExpectedAttention", "all", [142, 15, 0], [61, 80, 19]],
+    ["FastKVzip", "all", [74, 3, 0], [57, 23, 0]],
+    ["SnapKV", "reduced", [137, 19, 1], [56, 91, 13]],
+    ["Compactor", "reduced", [136, 20, 1], [24, 96, 40]],
+    ["KVzap", "reduced", [76, 2, 1], [38, 28, 14]]
+  ];
+  function bar(c) {
+    var n = c[0] + c[1] + c[2];
+    return '<div class="wtl"><div class="bar" role="img" aria-label="' + c[0] + ' wins, ' + c[1] + ' ties, ' + c[2] + ' losses">' +
+      '<span class="w" style="width:' + (100 * c[0] / n) + '%"></span>' +
+      '<span class="t" style="width:' + (100 * c[1] / n) + '%"></span>' +
+      '<span class="l" style="width:' + (100 * c[2] / n) + '%"></span></div>' +
+      '<span class="n">' + c.join("/") + '</span></div>';
+  }
+  document.getElementById("wtl-body").innerHTML = rows.map(function (r) {
+    var pill = r[1] === "all" ? '<span class="pill warn">keeps all</span>' : '<span class="pill">reduced</span>';
+    return "<tr><td class=\"name\">" + r[0] + "</td><td>" + pill + "</td><td>" + bar(r[2]) + "</td><td>" + bar(r[3]) + "</td></tr>";
+  }).join("");
+
+  /* BibTeX copy */
+  document.getElementById("copy-bibtex").addEventListener("click", function () {
+    var text = document.getElementById("bibtex-text").textContent, button = this;
+    function done() { button.textContent = "Copied"; setTimeout(function () { button.textContent = "Copy"; }, 1500); }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done);
+    else {
+      var area = document.createElement("textarea");
+      area.value = text; document.body.appendChild(area); area.select();
+      document.execCommand("copy"); document.body.removeChild(area); done();
+    }
+  });
+
+  /* Side rail */
+  var links = document.querySelectorAll(".toc a");
+  function mark() {
+    var current = links[0];
+    var atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 40;
+    if (atBottom) current = links[links.length - 1];
+    else links.forEach(function (a) {
+      var t = document.querySelector(a.getAttribute("href"));
+      if (t && t.getBoundingClientRect().top <= window.innerHeight * 0.4) current = a;
+    });
+    links.forEach(function (a) { a.classList.toggle("active", a === current); });
+  }
+  document.addEventListener("scroll", mark, { passive: true });
+  window.addEventListener("load", mark);
+})();
 </script>
 </body>
 </html>
